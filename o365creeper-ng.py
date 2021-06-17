@@ -22,6 +22,7 @@ import re
 import time
 from fake_useragent import UserAgent
 from pathlib import Path
+from requests.exceptions import ConnectionError, Timeout
 from stem import Signal
 from stem.control import Controller
 from typing import Dict
@@ -83,6 +84,22 @@ parser.add_argument(
         type=str,
         help='Password for Tor control port (default: %(default)s).',
         )
+parser.add_argument(
+        '--timeout',
+        default=60,
+        type=int,
+        metavar='TIME',
+        help=('Stop waiting for a response after %(metavar)s ' +
+            'seconds (default: %(default)s).'),
+        )
+parser.add_argument(
+        '--retry',
+        default=3,
+        type=int,
+        metavar='N',
+        help=('Retry up to %(metavar)s times in case of error ' +
+            '(default: %(default)s).'),
+        )
 
 args = parser.parse_args()
 
@@ -98,7 +115,9 @@ config = {
         'output': args.output,
         'output_fail': args.output_fail,
     },
-    'email': args.email
+    'email': args.email,
+    'timeout': args.timeout,
+    'retry': args.retry,
 }
 
 url = 'https://login.microsoftonline.com/common/GetCredentialType'
@@ -108,6 +127,7 @@ def check_email(
         url: str,
         email: str,
         tor_config: Dict,
+        timeout: int,
         ) -> Dict:
     """
         Check if a given email exists at O365
@@ -122,12 +142,68 @@ def check_email(
                 }
     headers = {'User-Agent': UserAgent().random}
     payload = {'Username': email}
-    r = req.post(url, proxies=proxies, headers=headers, json=payload)
-
-    ret['valid'] = re.search('"IfExistsResult":0,', r.text) is not None
-    ret['throttle'] = re.search('"ThrottleStatus":1,', r.text) is not None
+    try:
+        r = req.post(url, proxies=proxies, headers=headers, json=payload)
+    except ConnectionError:
+        #print(f'{email} - CONNECTION ERROR')
+        ret['valid'] = False
+        ret['throttle'] = False
+        ret['error'] = True
+        ret['exception'] = ConnectionError
+    except Timeout:
+        #print(f'{email} - TIMEOUT')
+        ret['valid'] = False
+        ret['throttle'] = False
+        ret['error'] = True
+        ret['exception'] = Timeout
+    else:
+        ret['valid'] = re.search('"IfExistsResult":0,', r.text) is not None
+        ret['throttle'] = re.search('"ThrottleStatus":1,', r.text) is not None
+        ret['error'] = False
+        ret['exception'] = None
 
     return ret
+
+
+def need_retry(status: dict) -> bool:
+    return status['throttle'] or status['error']
+
+
+def retry(config: Dict) -> None:
+    n = config['retry']
+    while (n > 0):
+        # generate new circuit
+        if config['tor']['use']:
+            with Controller.from_port(
+                    port = config['tor']['control_port']) as c:
+                c.authenticate(password=config['tor']['control_pw'])
+                # TODO: validates auth and try other methods
+                c.signal(Signal.NEWNYM)
+
+        new_check = check_email(url, email, config['tor'], config['timeout'])
+        if need_retry(new_check):
+            n -= 1
+        else:
+            break
+    # still throttling or error occurring :(
+    if need_retry(new_check):
+        if new_check['throttle']:
+            print(f'{email} - THROTTLED')
+        else:
+            print(f'{email} - {new_check["exception"]}')
+        if config['files']['output_fail'] is not None:
+            with config['files']['output_fail'].open(mode='a') as fail_file:
+                fail_file.write(email+'\n')
+    # didn't throttle this time (nor error)
+    else:
+        # is valid email?
+        if new_check['valid']:
+            print(f'{email} - VALID')
+            if config['files']['output'] is not None:
+                with config['files']['output'].open(mode='a') as output_file:
+                    output_file.write(email+'\n')
+        else:
+            print(f'{email} - INVALID')
 
 
 def validate_result(
@@ -139,47 +215,9 @@ def validate_result(
     """
         Validate results and redo if necessary
     """
-    # is endpoint throttling requests?
-    if throttle := check_res['throttle']:
-        # if using tor, try new circuit(s)
-        if config['tor']['use']:
-            retry = 3
-            while (retry > 0):
-                with Controller.from_port(
-                        port = config['tor']['control_port']) as c:
-                    c.authenticate(password=config['tor']['control_pw'])
-                    # TODO: validates auth and try other methods
-                    c.signal(Signal.NEWNYM)
-                new_check = check_email(url, email, config['tor'])
-                if new_check['throttle']:
-                    retry -= 1
-                else:
-                    break
-            # still throttling :(
-            if new_check['throttle']:
-                print(f'{email} - THROTTLED')
-                if config['files']['output_fail'] is not None:
-                    with config['files']['output_fail'].open(mode='a') as fail_file:
-                        fail_file.write(email+'\n')
-            # didn't throttle this time
-            else:
-                # is valid email?
-                if new_check['valid']:
-                    print(f'{email} - VALID')
-                    if config['files']['output'] is not None:
-                        with config['files']['output'].open(mode='a') as output_file:
-                            output_file.write(email+'\n')
-                else:
-                    print(f'{email} - INVALID')
-
-        # not using tor
-        # TODO: try other bypass methods
-        else:
-            print(f'{email} - THROTTLED')
-            if config['files']['output_fail'] is not None:
-                with config['files']['output_fail'].open(mode='a') as fail_file:
-                    fail_file.write(email+'\n')
-
+    # is endpoint throttling requests or some error occured?
+    if need_retry(check_res):
+        retry(config)
     # response was not throttled
     else:
         # is valid email?
@@ -199,12 +237,12 @@ def main():
         with config['files']['input'].open() as file:
             for line in file:
                 email = line.strip()
-                checked = check_email(url, email, config['tor'])
+                checked = check_email(url, email, config['tor'], config['timeout'])
                 validate_result(checked, email, config, url)
 
     elif config.email is not None:
         email = config.email
-        checked = check_email(url, email, config['tor'])
+        checked = check_email(url, email, config['tor'], config['timeout'])
         validate_result(checked, email, config, url)
 
 

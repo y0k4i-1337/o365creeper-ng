@@ -13,7 +13,7 @@ After repeated attempts to validate email addresses, Office 365 will flag these 
 leading to false positives. This program will therefore search for the "ThrottleStatus" parameter
 in order to decide if the response can be considered as valid or not. When the parameter is set to
 1, this means that the server throttled our request. In this case, and if we are using Tor, the
-program will try to regenerate the tor circuit and retry the previous request. This generally
+program will try to regenerate the tor circuit and retry the last request. This generally
 allows us to get reliable results.
 
 Furthermore, this program will also make requests with random user agents in order to be even more
@@ -52,8 +52,8 @@ output throttled ones to a different file with the `--output-fail` parameter, in
 to retry them later.
 
 ```
-usage: o365creeper-ng.py [-h] (-e EMAIL | -f FILE) [-o OUTPUT] [--output-fail OUTPUT_FAIL] 
-			[-t] [-p SOCKS_PORT] [-c CONTROL_PORT] [-s CONTROL_PW]
+usage: o365creeper-ng.py [-h] (-e EMAIL | -f FILE) [-o OUTPUT] [--output-fail OUTPUT_FAIL]
+			[-t] [-p SOCKS_PORT] [-c CONTROL_PORT] [-s CONTROL_PW] [--timeout TIME] [--retry N]
 
 Enumerates valid email addresses from Office 365 without submitting login attempts.
 
@@ -73,6 +73,8 @@ optional arguments:
                         Tor control port to use (default: 9051).
   -s CONTROL_PW, --tor-control-pw CONTROL_PW
                         Password for Tor control port (default: None).
+  --timeout TIME        Stop waiting for a response after TIME seconds (default: 60).
+  --retry N             Retry up to N times in case of error (default: 3).
 ```
 
 ### Examples:

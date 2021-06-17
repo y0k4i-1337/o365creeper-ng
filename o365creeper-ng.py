@@ -118,9 +118,8 @@ config = {
     'email': args.email,
     'timeout': args.timeout,
     'retry': args.retry,
+    'url': 'https://login.microsoftonline.com/common/GetCredentialType',
 }
-
-url = 'https://login.microsoftonline.com/common/GetCredentialType'
 
 
 def check_email(
@@ -169,7 +168,7 @@ def need_retry(status: dict) -> bool:
     return status['throttle'] or status['error']
 
 
-def retry(config: Dict) -> None:
+def retry(email: str, config: Dict) -> None:
     n = config['retry']
     while (n > 0):
         # generate new circuit
@@ -180,7 +179,7 @@ def retry(config: Dict) -> None:
                 # TODO: validates auth and try other methods
                 c.signal(Signal.NEWNYM)
 
-        new_check = check_email(url, email, config['tor'], config['timeout'])
+        new_check = check_email(config['url'], email, config['tor'], config['timeout'])
         if need_retry(new_check):
             n -= 1
         else:
@@ -210,14 +209,13 @@ def validate_result(
         check_res: Dict,
         email: str,
         config: Dict,
-        url: str,
         ) -> None:
     """
         Validate results and redo if necessary
     """
     # is endpoint throttling requests or some error occured?
     if need_retry(check_res):
-        retry(config)
+        retry(email, config)
     # response was not throttled
     else:
         # is valid email?
@@ -237,13 +235,13 @@ def main():
         with config['files']['input'].open() as file:
             for line in file:
                 email = line.strip()
-                checked = check_email(url, email, config['tor'], config['timeout'])
-                validate_result(checked, email, config, url)
+                checked = check_email(config['url'], email, config['tor'], config['timeout'])
+                validate_result(checked, email, config)
 
     elif config.email is not None:
         email = config.email
-        checked = check_email(url, email, config['tor'], config['timeout'])
-        validate_result(checked, email, config, url)
+        checked = check_email(config['url'], email, config['tor'], config['timeout'])
+        validate_result(checked, email, config)
 
 
 if __name__ == "__main__":

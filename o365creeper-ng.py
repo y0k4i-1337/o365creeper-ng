@@ -238,8 +238,8 @@ def main():
                 checked = check_email(config['url'], email, config['tor'], config['timeout'])
                 validate_result(checked, email, config)
 
-    elif config.email is not None:
-        email = config.email
+    elif config['email'] is not None:
+        email = config['email']
         checked = check_email(config['url'], email, config['tor'], config['timeout'])
         validate_result(checked, email, config)
 

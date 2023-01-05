@@ -44,6 +44,13 @@ group.add_argument(
         help='List of email addresses to validate, one per line.',
         )
 parser.add_argument(
+    '-u',
+    '--baseurl',
+    type=str,
+    help='Base URL (default: %(default)s).',
+    default='https://login.microsoftonline.com'
+)
+parser.add_argument(
         '-o',
         '--output',
         type=Path,
@@ -104,7 +111,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 config = {
-    'tor': { 
+    'tor': {
         'use': args.tor,
         'socks_port': args.socks_port,
         'control_port': args.control_port,
@@ -118,7 +125,7 @@ config = {
     'email': args.email,
     'timeout': args.timeout,
     'retry': args.retry,
-    'url': 'https://login.microsoftonline.com/common/GetCredentialType',
+    'url': args.baseurl.strip('/') + '/common/GetCredentialType',
 }
 
 
@@ -139,7 +146,7 @@ def check_email(
                 'http': proxy,
                 'https': proxy,
                 }
-    headers = {'User-Agent': UserAgent().random}
+    headers = {'User-Agent': UserAgent(fallback='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36').random}
     payload = {'Username': email}
     try:
         r = req.post(url, proxies=proxies, headers=headers, json=payload)
@@ -227,7 +234,7 @@ def validate_result(
         else:
             print(f'{email} - INVALID')
 
-        
+
 
 def main():
 

@@ -16,13 +16,14 @@
 # In order to bypass the behaviour above, this program can use tor circuits
 # which will be regenerated every time it detects throttling.
 
-import requests as req
 import argparse
 import re
 import time
 import random
+import asyncio
+import aiohttp
 from pathlib import Path
-from requests.exceptions import ConnectionError, Timeout
+from aiohttp_socks  import ProxyConnector
 from stem import Signal
 from stem.control import Controller
 from typing import Dict
@@ -62,7 +63,6 @@ parser.add_argument(
         help='Output failed validations to the specified file.',
         )
 parser.add_argument(
-        '-t',
         '--tor',
         action='store_true',
         help='Use tor for requests.',
@@ -84,7 +84,6 @@ parser.add_argument(
         help='Tor control port to use (default: %(default)s).',
         )
 parser.add_argument(
-        '-s',
         '--tor-control-pw',
         dest='control_pw',
         default=None,
@@ -93,7 +92,7 @@ parser.add_argument(
         )
 parser.add_argument(
         '--timeout',
-        default=60,
+        default=30,
         type=int,
         metavar='TIME',
         help=('Stop waiting for a response after %(metavar)s ' +
@@ -107,8 +106,57 @@ parser.add_argument(
         help=('Retry up to %(metavar)s times in case of error ' +
             '(default: %(default)s).'),
         )
+parser.add_argument(
+        "-t",
+        "--max-connections",
+        dest="maxconn",
+        type=int,
+        default=20,
+        help="Maximum number of simultaneous connections (default: %(default)s)"
+)
+parser.add_argument(
+        "-s",
+        "--sleep",
+        default=0,
+        type=int,
+        help="Sleep this many seconds between tries (default: %(default)s).",
+)
+parser.add_argument(
+    "-H",
+    "--header",
+    help="Extra header to include in the request (can be used multiple times).",
+    action="append",
+    dest="headers",
+)
+
+def get_list_from_file(file_):
+    """Create a list from the contents of a file.
+
+    Args:
+        file_ (str): Input file name
+
+    Returns:
+        List[str]: Content of input file splitted by lines
+    """
+    with open(file_, "r") as f:
+        list_ = [line.strip() for line in f]
+    return list_
+
 
 args = parser.parse_args()
+
+
+semaphore = asyncio.Semaphore(args.maxconn)
+headers = {
+    "Connection": "close"
+}
+# include custom headers
+if args.headers:
+    for header in args.headers:
+        h, v = header.split(":", 1)
+        headers[h.strip()] = v.strip()
+
+usernames = [args.email] if args.email else get_list_from_file(args.file)
 
 config = {
     'tor': {
@@ -125,6 +173,8 @@ config = {
     'email': args.email,
     'timeout': args.timeout,
     'retry': args.retry,
+    'sleep': args.sleep,
+    'headers': headers,
     'url': args.baseurl.strip('/') + '/common/GetCredentialType',
 }
 
@@ -376,127 +426,115 @@ uas = [
     "Mozilla/1.22 (compatible; MSIE 2.0; Windows 3.1)"
   ]
 
-def check_email(
-        url: str,
-        email: str,
-        tor_config: Dict,
-        timeout: int,
-        ) -> Dict:
-    """
-        Check if a given email exists at O365
-    """
-    ret = {}
-    proxies = None
-    if tor_config['use']:
-        proxy = f'socks5://127.0.0.1:{tor_config["socks_port"]}'
-        proxies = {
-                'http': proxy,
-                'https': proxy,
-                }
-    headers = {'User-Agent': random.choice(uas)}
-    payload = {'Username': email}
-    try:
-        r = req.post(url, proxies=proxies, headers=headers, json=payload)
-    except ConnectionError:
-        #print(f'{email} - CONNECTION ERROR')
-        ret['valid'] = False
-        ret['throttle'] = False
-        ret['error'] = True
-        ret['exception'] = ConnectionError
-    except Timeout:
-        #print(f'{email} - TIMEOUT')
-        ret['valid'] = False
-        ret['throttle'] = False
-        ret['error'] = True
-        ret['exception'] = Timeout
-    else:
-        ret['valid'] = re.search('"IfExistsResult":0,', r.text) is not None
-        ret['throttle'] = re.search('"ThrottleStatus":1,', r.text) is not None
-        ret['error'] = False
-        ret['exception'] = None
 
-    return ret
-
-
-def need_retry(status: dict) -> bool:
+async def need_retry(status: dict) -> bool:
     return status['throttle'] or status['error']
 
 
-def retry(email: str, config: Dict) -> None:
-    n = config['retry']
-    while (n > 0):
-        # generate new circuit
-        if config['tor']['use']:
-            with Controller.from_port(
-                    port = config['tor']['control_port']) as c:
-                c.authenticate(password=config['tor']['control_pw'])
-                # TODO: validates auth and try other methods
-                c.signal(Signal.NEWNYM)
-
-        new_check = check_email(config['url'], email, config['tor'], config['timeout'])
-        if need_retry(new_check):
-            n -= 1
-        else:
-            break
-    # still throttling or error occurring :(
-    if need_retry(new_check):
-        if new_check['throttle']:
-            print(f'{email} - THROTTLED')
-        else:
-            print(f'{email} - {new_check["exception"]}')
-        if config['files']['output_fail'] is not None:
-            with config['files']['output_fail'].open(mode='a') as fail_file:
-                fail_file.write(email+'\n')
-    # didn't throttle this time (nor error)
-    else:
-        # is valid email?
-        if new_check['valid']:
-            print(f'{email} - VALID')
-            if config['files']['output'] is not None:
-                with config['files']['output'].open(mode='a') as output_file:
-                    output_file.write(email+'\n')
-        else:
-            print(f'{email} - INVALID')
-
-
-def validate_result(
-        check_res: Dict,
-        email: str,
+async def check_email(
+        session: aiohttp.ClientSession,
         config: Dict,
-        ) -> None:
+        email: str,
+        headers: Dict,
+        uid: int
+        ) :
     """
-        Validate results and redo if necessary
+        Check if a given email exists at O365
     """
-    # is endpoint throttling requests or some error occured?
-    if need_retry(check_res):
-        retry(email, config)
-    # response was not throttled
+    async with semaphore:
+        if uid > 0 and args.sleep > 0:
+            await asyncio.sleep(args.sleep)
+        ret = {}
+        headers['User-Agent'] = random.choice(uas)
+        payload = {'Username': email}
+        try:
+            async with session.post(config['url'], headers=headers, json=payload) as resp:
+                text = await resp.text()
+                ret['valid'] = re.search('"IfExistsResult":0,', text) is not None
+                ret['throttle'] = re.search('"ThrottleStatus":1,', text) is not None
+                ret['error'] = False
+                ret['exception'] = None
+        except BaseException as e:
+            ret['valid'] = False
+            ret['throttle'] = False
+            ret['error'] = True
+            ret['exception'] = e
+        finally:
+            # is endpoint throttling requests or some error occured?
+            if await need_retry(ret):
+                new_check ={}
+                n = config['retry']
+                while (n > 0):
+                    new_check = {}
+                    # generate new circuit
+                    if config['tor']['use']:
+                        with Controller.from_port(
+                                port = config['tor']['control_port']) as c:
+                            c.authenticate(password=config['tor']['control_pw'])
+                            # TODO: validates auth and try other methods
+                            c.signal(Signal.NEWNYM)
+
+                    try:
+                        async with session.post(config['url'],  headers=headers, json=payload) as resp:
+                            text = await resp.text()
+                            new_check['valid'] = re.search('"IfExistsResult":0,', text) is not None
+                            new_check['throttle'] = re.search('"ThrottleStatus":1,', text) is not None
+                            new_check['error'] = False
+                            new_check['exception'] = None
+                    except BaseException as e:
+                        new_check['valid'] = False
+                        new_check['throttle'] = False
+                        new_check['error'] = True
+                        new_check['exception'] = e
+
+                    if await need_retry(new_check):
+                        n -= 1
+                    else:
+                        break
+
+                # still throttling or error occurring :(
+                if  await need_retry(new_check):
+                    if new_check['throttle']:
+                        print(f'{email} - THROTTLED')
+                    else:
+                        print(f'{email} - {new_check["exception"]}')
+                    if config['files']['output_fail'] is not None:
+                        with config['files']['output_fail'].open(mode='a') as fail_file:
+                            fail_file.write(email+'\n')
+                # didn't throttle this time (nor error)
+                else:
+                    # is valid email?
+                    if new_check['valid']:
+                        print(f'{email} - VALID')
+                        if config['files']['output'] is not None:
+                            with config['files']['output'].open(mode='a') as output_file:
+                                output_file.write(email+'\n')
+                    else:
+                        print(f'{email} - INVALID')
+
+            # response was not throttled
+            else:
+                # is valid email?
+                if ret['valid']:
+                    print(f'{email} - VALID')
+                    if config['files']['output'] is not None:
+                        with config['files']['output'].open(mode='a') as output_file:
+                            output_file.write(email+'\n')
+                else:
+                    print(f'{email} - INVALID')
+
+async def main():
+    username_count = len(usernames)
+    timeout = aiohttp.ClientTimeout(total=args.timeout)
+    tor_config = config['tor']
+    if tor_config['use']:
+        connector = ProxyConnector.from_url('socks5://127.0.0.1:' + str(tor_config['socks_port']), limit=args.maxconn)
     else:
-        # is valid email?
-        if check_res['valid']:
-            print(f'{email} - VALID')
-            if config['files']['output'] is not None:
-                with config['files']['output'].open(mode='a') as output_file:
-                    output_file.write(email+'\n')
-        else:
-            print(f'{email} - INVALID')
-
-
-
-def main():
-
-    if config['files']['input'] is not None:
-        with config['files']['input'].open() as file:
-            for line in file:
-                email = line.strip()
-                checked = check_email(config['url'], email, config['tor'], config['timeout'])
-                validate_result(checked, email, config)
-
-    elif config['email'] is not None:
-        email = config['email']
-        checked = check_email(config['url'], email, config['tor'], config['timeout'])
-        validate_result(checked, email, config)
+        connector = aiohttp.TCPConnector(limit=args.maxconn)
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        await asyncio.gather(*[asyncio.ensure_future(check_email(session, config, username, headers.copy(), uid)) for uid, username in enumerate(usernames)], return_exceptions=False)
 
 
 if __name__ == "__main__":
-    main()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())

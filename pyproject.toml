@@ -7,8 +7,9 @@ license = "BSD 2-Clause"
 
 [tool.poetry.dependencies]
 python = "^3.8"
-requests = {extras = ["socks", "security"], version = "^2.25.1"}
 stem = "^1.8.0"
+aiohttp = "^3.8.3"
+aiohttp-socks = "^0.7.1"
 
 [tool.poetry.dev-dependencies]
 

@@ -1,0 +1,3 @@
+.tool-versions
+*.txt
+!requirements.txt

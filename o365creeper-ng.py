@@ -22,11 +22,21 @@ import time
 import random
 import asyncio
 import aiohttp
+import sys
 from pathlib import Path
 from aiohttp_socks  import ProxyConnector
 from stem import Signal
 from stem.control import Controller
 from typing import Dict
+
+class text_colors:
+    """Helper class to make colorizing easy."""
+
+    red = "\033[91m"
+    green = "\033[92m"
+    yellow = "\033[93m"
+    reset = "\033[0m"
+
 
 parser = argparse.ArgumentParser(
         description=('Enumerates valid email addresses from ' +
@@ -50,6 +60,13 @@ parser.add_argument(
     type=str,
     help='Base URL (default: %(default)s).',
     default='https://login.microsoftonline.com'
+)
+group.add_argument(
+        '-d',
+        '--domain',
+        type=str,
+        metavar='DOMAIN',
+        help='Check if %(metavar)s is managed by MicrosoftOnline and exit.'
 )
 parser.add_argument(
         '-o',
@@ -156,7 +173,8 @@ if args.headers:
         h, v = header.split(":", 1)
         headers[h.strip()] = v.strip()
 
-usernames = [args.email] if args.email else get_list_from_file(args.file)
+if args.domain is None:
+    usernames = [args.email] if args.email else get_list_from_file(args.file)
 
 config = {
     'tor': {
@@ -175,6 +193,7 @@ config = {
     'retry': args.retry,
     'sleep': args.sleep,
     'headers': headers,
+    'baseurl': args.baseurl.strip('/'),
     'url': args.baseurl.strip('/') + '/common/GetCredentialType',
 }
 
@@ -426,6 +445,14 @@ uas = [
     "Mozilla/1.22 (compatible; MSIE 2.0; Windows 3.1)"
   ]
 
+async def verify_domain(domain: str, baseurl: str ='https://login.microsoftonline.com', **kwargs) -> bool:
+    async with aiohttp.ClientSession(**kwargs) as session:
+        params = {'login': f'user@{domain}', 'xml': 1}
+        url = baseurl + '/getuserrealm.srf'
+        async with session.get(url, params=params) as resp:
+            xml = await resp.text()
+            return re.search("<NameSpaceType>Managed</NameSpaceType>", xml) is not None
+
 
 async def need_retry(status: dict) -> bool:
     return status['throttle'] or status['error']
@@ -505,7 +532,7 @@ async def check_email(
                 else:
                     # is valid email?
                     if new_check['valid']:
-                        print(f'{email} - VALID')
+                        print(f'{text_colors.green}{email} - VALID{text_colors.reset}')
                         if config['files']['output'] is not None:
                             with config['files']['output'].open(mode='a') as output_file:
                                 output_file.write(email+'\n')
@@ -516,7 +543,7 @@ async def check_email(
             else:
                 # is valid email?
                 if ret['valid']:
-                    print(f'{email} - VALID')
+                    print(f'{text_colors.green}{email} - VALID{text_colors.reset}')
                     if config['files']['output'] is not None:
                         with config['files']['output'].open(mode='a') as output_file:
                             output_file.write(email+'\n')
@@ -524,17 +551,42 @@ async def check_email(
                     print(f'{email} - INVALID')
 
 async def main():
-    username_count = len(usernames)
     timeout = aiohttp.ClientTimeout(total=args.timeout)
     tor_config = config['tor']
     if tor_config['use']:
         connector = ProxyConnector.from_url('socks5://127.0.0.1:' + str(tor_config['socks_port']), limit=args.maxconn)
     else:
         connector = aiohttp.TCPConnector(limit=args.maxconn)
+
+    # only verify if domain is managed
+    if args.domain:
+        if await verify_domain(args.domain, config['baseurl'], timeout=timeout, connector=connector):
+            print(f"{text_colors.green}Domain {args.domain} is MANAGED by MicrosoftOnline. You may use this tool to enumerate users.{text_colors.reset}")
+            sys.exit()
+        else:
+            print(f"{text_colors.red}Domain {args.domain} is NOT MANAGED by MicrosoftOnline. Using this tool may lead to unreliable results.{text_colors.reset}")
+            sys.exit()
+
+    username_count = len(usernames)
+    # verify if domain is managed before trying to enumerate
+    if username_count > 0:
+        domain = usernames[0].split(sep='@')[1]
+        if not await verify_domain(domain, config['baseurl'], timeout=timeout):
+            while True:
+                c = input(f"{text_colors.yellow} Domain {domain} is NOT MANAGED by MicrosoftOnline. Trying to enumerate may lead to unexpected results.{text_colors.reset} Do you wish to continue? [y/N] ") or "N"
+                if c.upper() == 'Y':
+                    break
+                elif c.upper() == 'N':
+                    sys.exit()
+
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         await asyncio.gather(*[asyncio.ensure_future(check_email(session, config, username, headers.copy(), uid)) for uid, username in enumerate(usernames)], return_exceptions=False)
 
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        pass

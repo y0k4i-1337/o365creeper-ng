@@ -1,3 +1,5 @@
+<a href="https://codeclimate.com/github/y0k4i-1337/o365creeper-ng/maintainability"><img src="https://api.codeclimate.com/v1/badges/f7a81aaa184ee1d019d1/maintainability" /></a>
+
 # o365creeper-ng
 
 Stealthy O365 user validation

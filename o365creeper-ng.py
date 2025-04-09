@@ -163,7 +163,6 @@ def get_list_from_file(file_):
 args = parser.parse_args()
 
 
-semaphore = asyncio.Semaphore(args.maxconn)
 headers = {
     "Connection": "close"
 }
@@ -463,7 +462,8 @@ async def check_email(
         config: Dict,
         email: str,
         headers: Dict,
-        uid: int
+        uid: int,
+        semaphore: asyncio.Semaphore
         ) :
     """
         Check if a given email exists at O365
@@ -551,6 +551,7 @@ async def check_email(
                     print(f'{email} - INVALID')
 
 async def main():
+    semaphore = asyncio.Semaphore(args.maxconn)
     timeout = aiohttp.ClientTimeout(total=args.timeout)
     tor_config = config['tor']
     if tor_config['use']:
@@ -580,7 +581,7 @@ async def main():
                     sys.exit()
 
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-        await asyncio.gather(*[asyncio.ensure_future(check_email(session, config, username, headers.copy(), uid)) for uid, username in enumerate(usernames)], return_exceptions=False)
+        await asyncio.gather(*[asyncio.ensure_future(check_email(session, config, username, headers.copy(), uid, semaphore)) for uid, username in enumerate(usernames)], return_exceptions=False)
 
 
 if __name__ == "__main__":

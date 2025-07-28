@@ -556,6 +556,16 @@ async def main():
     tor_config = config['tor']
     if tor_config['use']:
         connector = ProxyConnector.from_url('socks5://127.0.0.1:' + str(tor_config['socks_port']), limit=args.maxconn)
+        # try provided credentials
+        try:
+            with Controller.from_port(port=tor_config["control_port"]) as c:
+                c.authenticate(password=tor_config["control_pw"])
+                c.signal(Signal.NEWNYM)
+        except Exception as e:
+            print(
+                f"{text_colors.red}[!] Error during Tor control authentication: {e}{text_colors.reset}"
+            )
+            sys.exit(-1)
     else:
         connector = aiohttp.TCPConnector(limit=args.maxconn)
 

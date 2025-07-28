@@ -53,6 +53,38 @@ You may also use this tool with Tor support. For that, you will have to configur
 [here](https://wiki.archlinux.org/title/Tor#Open_Tor_ControlPort) and
 [here](https://wiki.archlinux.org/title/Tor#Set_a_Tor_Control_password).
 
+In summary, you will have to generate a password hash with the command:
+
+```
+$ set +o history # unset bash history
+$ tor --hash-password your_password
+$ set -o history # set bash history
+```
+Add the generated hash to your `torrc`:
+
+```
+HashedControlPassword your_hash
+```
+
+Add these additional lines to your `torrc` to enable the control port:
+
+```
+ControlSocket /var/lib/tor/control_socket
+ControlSocketsGroupWritable 1
+DataDirectoryGroupReadable 1
+```
+
+Add the user who will run the program to the `tor` user group and restart the
+Tor service.
+
+To verify the ControlSocket permissions:
+
+```
+$ stat -c%a /var/lib/tor /var/lib/tor/control_socket
+
+750
+660
+```
 
 ## Usage
 

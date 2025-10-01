@@ -24,6 +24,8 @@ async def test_tor(socks_port: int):
 
 async def test_circuits(socks_port: int, count: int):
     test_url = "https://api.ipify.org"
+    # get max number of digits in count
+    digits = len(str(count))
     for i in range(count):
         connector = ProxyConnector(
             host="127.0.0.1",
@@ -38,9 +40,9 @@ async def test_circuits(socks_port: int, count: int):
         ) as resp:
             text = await resp.text()
             if resp.status != 200:
-                print_error(f"Tor circuit {i+1} failed with status {resp.status}")
+                print_error(f"Tor circuit {i+1:>{digits}} failed with status {resp.status}")
             else:
-                print_success(f"Tor circuit {i+1}: {text.strip()}")
+                print_success(f"Tor circuit {i+1:>{digits}}: {text.strip()}")
         await connector.close()
 
 

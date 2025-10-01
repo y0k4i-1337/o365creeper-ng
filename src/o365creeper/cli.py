@@ -25,7 +25,7 @@ import aiohttp
 from colorama import Fore
 
 from o365creeper.core import check_email, verify_domain
-from o365creeper.tor import test_tor, test_circuits
+from o365creeper.tor import create_tor_sessions, test_tor, test_circuits
 from o365creeper.utils import (
     get_list_from_file,
     print_error,
@@ -181,8 +181,9 @@ async def main():
     }
 
     semaphore = asyncio.Semaphore(args.maxconn)
-    timeout = aiohttp.ClientTimeout(total=args.timeout)
     connector = aiohttp.TCPConnector(limit=args.maxconn)
+    timeout = aiohttp.ClientTimeout(total=args.timeout)
+
     tor_config = config["tor"]
 
     # test tor configuration and exit
@@ -248,18 +249,51 @@ async def main():
                 elif c.upper() == "N":
                     sys.exit()
 
-    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-        await asyncio.gather(
-            *[
-                asyncio.ensure_future(
-                    check_email(
-                        session, config, username, headers.copy(), uid, semaphore
-                    )
-                )
-                for uid, username in enumerate(usernames)
-            ],
-            return_exceptions=False,
+    sessions = []
+    # Create sessions
+    if tor_config["use"]:
+        sessions = await create_tor_sessions(
+            tor_config["socks_port"],
+            tor_config["pool_size"],
+            args.timeout
         )
+    else:
+        sessions.append(
+            aiohttp.ClientSession(timeout=timeout, connector=connector)
+        )
+
+    try:
+        tasks = []
+        n_sessions = len(sessions)
+
+        for uid, username in enumerate(usernames):
+            # pick session by round-robin
+            session = sessions[uid % n_sessions]
+            task = asyncio.create_task(
+                check_email(session, config, username, headers.copy(), uid, semaphore)
+            )
+            tasks.append(task)
+
+        await asyncio.gather(*tasks, return_exceptions=False)
+    except Exception as e:
+        print_error(f"Error during tasks:{e}")
+    finally:
+        # Cleanly close all sessions
+        await asyncio.gather(*(s.close() for s in sessions))
+
+
+    # async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+    #     await asyncio.gather(
+    #         *[
+    #             asyncio.ensure_future(
+    #                 check_email(
+    #                     session, config, username, headers.copy(), uid, semaphore
+    #                 )
+    #             )
+    #             for uid, username in enumerate(usernames)
+    #         ],
+    #         return_exceptions=False,
+    #     )
 
 
 def run():

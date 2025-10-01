@@ -25,17 +25,12 @@ stealth.
 ## Dependencies
 
 The [original project](https://github.com/LMGsec/o365creeper) was completely refactored and runs
-now with `python 3.8` (it probably works with later versions but that hasn't been tested yet).
+now with `python 3.9` (it probably works with later versions but that hasn't been tested yet).
 
 This project uses [Poetry](https://python-poetry.org/) for dependency management, so you can just
 run:
 ```
 poetry install
-```
-
-Dependencies can also be installed with `pip`:
-```
-pip install -r requirements.txt
 ```
 
 ## Fireprox

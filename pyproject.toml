@@ -1,21 +1,27 @@
-[tool.poetry]
+[project]
 name = "o365creeper-ng"
-version = "0.1.0"
+version = "1.0.0"
 description = "Stealthy o365 user validation"
-authors = ["mchoji <mchoji@users.noreply.github.com>"]
+authors = [{name = "y0k4i", email = "7395296+y0k4i-1337@users.noreply.github.com"}]
 license = "BSD 2-Clause"
+readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.8"
-stem = "^1.8.0"
-aiohttp = "^3.9.0b0"
-aiohttp-socks = "^0.7.1"
+python = "^3.9"
+aiohttp = {extras = ["speedups"], version = "^3.12.15"}
+aiohttp-socks = "^0.10"
+colorama = "^0.4.6"
 
-[tool.poetry.dev-dependencies]
+[project.urls]
+"Repository" = "https://github.com/y0k4i-1337/o365creeper-ng.git"
+"Issues" = "https://github.com/y0k4i-1337/o365creeper-ng/issues"
 
-[tool.poetry.group.dev.dependencies]
-yapf = "^0.32.0"
+[tool.poetry]
+packages = [{include = "o365creeper", from = "src"}]
+
+[tool.poetry.scripts]
+o365creeper = "o365creeper.cli:run"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"

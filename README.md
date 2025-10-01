@@ -40,7 +40,11 @@ pip install -r requirements.txt
 
 ## Fireprox
 
-It is recommended to use this tool in conjunction with [fireprox](https://github.com/ustayready/fireprox).
+    Note: AWS has proibited the use of API Gateway as a rotating proxy, so this
+    method may not work anymore. Also, this could be against your AWS terms of
+    service, so use it at your own risk.
+
+You may this tool in conjunction with [fireprox](https://github.com/ustayready/fireprox).
 For that, you have to create a new API gateway pointing to
 `https://login.microsoftonline.com`. Once you have received an URL like
 `https://eid939cks.execute-api.us-east-1.amazonaws.com/fireprox`, you can pass
@@ -48,42 +52,18 @@ it in the `-u` option.
 
 ## Tor
 
-You may also use this tool with Tor support. For that, you will have to configure your
-`torrc` to open a control port and set a password. Instructions can be found
-[here](https://wiki.archlinux.org/title/Tor#Open_Tor_ControlPort) and
-[here](https://wiki.archlinux.org/title/Tor#Set_a_Tor_Control_password).
+You can also use this tool with Tor. For that, you need to have Tor installed and
+running on your machine. You can then use the `--tor` option to route requests
+through Tor.
 
-In summary, you will have to generate a password hash with the command:
-
-```
-$ set +o history # unset bash history
-$ tor --hash-password your_password
-$ set -o history # set bash history
-```
-Add the generated hash to your `torrc`:
+In order to bypass throttling, the script can generate `N` number of different
+circuits through
+[IsolateSocksAuth](https://spec.torproject.org/proposals/351-socks-auth-extensions.html)
+feature. For that, you need to set this sub-option in your `torrc` file
+(usually located at `/etc/tor/torrc` on Linux or `/opt/homebrew/etc/tor/torrc` on MacOS):
 
 ```
-HashedControlPassword your_hash
-```
-
-Add these additional lines to your `torrc` to enable the control port:
-
-```
-ControlSocket /var/lib/tor/control_socket
-ControlSocketsGroupWritable 1
-DataDirectoryGroupReadable 1
-```
-
-Add the user who will run the program to the `tor` user group and restart the
-Tor service.
-
-To verify the ControlSocket permissions:
-
-```
-$ stat -c%a /var/lib/tor /var/lib/tor/control_socket
-
-750
-660
+SOCKSPort 9050 IsolateSOCKSAuth
 ```
 
 ## Usage
@@ -101,50 +81,45 @@ output throttled ones to a different file with the `--output-fail` parameter, in
 to retry them later.
 
 ```
-usage: o365creeper-ng.py [-h] [-e EMAIL] [-f FILE] [-u BASEURL] [-d DOMAIN] [-o OUTPUT] [--output-fail OUTPUT_FAIL] [--tor] [-p SOCKS_PORT]
-                         [-c CONTROL_PORT] [--tor-control-pw CONTROL_PW] [--timeout TIME] [--retry N] [-t MAXCONN] [-s SLEEP] [-H HEADERS]
+usage: o365creeper [-h] (-e EMAIL | -f FILE | --tor-test | -d DOMAIN) [-u BASEURL] [-o OUTPUT]
+                   [--output-fail OUTPUT_FAIL] [--tor] [-p SOCKS_PORT] [--tor-pool TOR_POOL] [--timeout TIME]
+                   [--retry N] [-t MAXCONN] [-s SLEEP] [-H HEADERS]
 
 Enumerates valid email addresses from Office 365 without submitting login attempts.
 
 options:
   -h, --help            show this help message and exit
-  -e EMAIL, --email EMAIL
-                        Single email address to validate.
-  -f FILE, --file FILE  List of email addresses to validate, one per line.
-  -u BASEURL, --baseurl BASEURL
+  -e, --email EMAIL     Single email address to validate.
+  -f, --file FILE       List of email addresses to validate, one per line.
+  --tor-test            Test Tor connectivity and exit.
+  -d, --domain DOMAIN   Check if DOMAIN is managed by MicrosoftOnline and exit.
+  -u, --baseurl BASEURL
                         Base URL (default: https://login.microsoftonline.com).
-  -d DOMAIN, --domain DOMAIN
-                        Check if DOMAIN is managed by MicrosoftOnline and exit.
-  -o OUTPUT, --output OUTPUT
-                        Output valid email addresses to the specified file.
+  -o, --output OUTPUT   Output valid email addresses to the specified file.
   --output-fail OUTPUT_FAIL
                         Output failed validations to the specified file.
   --tor                 Use tor for requests.
-  -p SOCKS_PORT, --tor-port SOCKS_PORT
+  -p, --tor-port SOCKS_PORT
                         Tor socks port to use (default: 9050).
-  -c CONTROL_PORT, --tor-control-port CONTROL_PORT
-                        Tor control port to use (default: 9051).
-  --tor-control-pw CONTROL_PW
-                        Password for Tor control port (default: None).
+  --tor-pool TOR_POOL   Number of Tor circuits to create (default: 10).
   --timeout TIME        Stop waiting for a response after TIME seconds (default: 30).
   --retry N             Retry up to N times in case of error (default: 3).
-  -t MAXCONN, --max-connections MAXCONN
+  -t, --max-connections MAXCONN
                         Maximum number of simultaneous connections (default: 20)
-  -s SLEEP, --sleep SLEEP
-                        Sleep this many seconds between tries (default: 0).
-  -H HEADERS, --header HEADERS
-                        Extra header to include in the request (can be used multiple times).
+  -s, --sleep SLEEP     Sleep this many seconds between tries (default: 0).
+  -H, --header HEADERS  Extra header to include in the request (can be used multiple times).
 ```
 
 ### Examples:
 
 ```
-o365creeper-ng.py -d example.com
-o365creeper-ng.py -e test@example.com
-o365creeper-ng.py -f emails.txt
-o365creeper-ng.py -f emails.txt -o validemails.txt
-o365creeper-ng.py -f emails.txt -o validemails.txt -u https://eid939cks.execute-api.us-east-1.amazonaws.com/fireprox -t 100 -H 'X-My-X-Forwarded-For: 127.0.0.1'
-o365creeper-ng.py -f emails.txt -o validemails.txt --output-fail retry.txt -t -s t0rpassw0rd
+poetry run o365creeper -d example.com
+poetry run o365creeper -e test@example.com
+poetry run o365creeper -f emails.txt
+poetry run o365creeper -f emails.txt -o validemails.txt
+poetry run o365creeper -f emails.txt -o validemails.txt -u https://eid939cks.execute-api.us-east-1.amazonaws.com/fireprox -t 100 -H 'X-My-X-Forwarded-For: 127.0.0.1'
+poetry run o365creeper -f emails.txt -o validemails.txt --output-fail retry.txt --tor
+poetry run o365creeper --tor-test
 ```
 
 ## NOTE

@@ -40,7 +40,7 @@ async def test_circuits(socks_port: int, count: int):
         ) as resp:
             text = await resp.text()
             if resp.status != 200:
-                print_error(f"Tor circuit {i+1:>{digits}} failed with status {resp.status}")
+                print_error(f"Tor circuit {i+1:>{digits}}: failed with status {resp.status}")
             else:
                 print_success(f"Tor circuit {i+1:>{digits}}: {text.strip()}")
         await connector.close()

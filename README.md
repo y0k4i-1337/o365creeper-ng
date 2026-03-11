@@ -119,3 +119,7 @@ poetry run o365creeper --tor-test
 
 ## NOTE
 This tool is offered with no warranty and is to be used at your own risk and discretion.
+
+## Support
+
+<p><a href="https://www.buymeacoffee.com/y0k4i"> <img align="left" src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" height="50" width="210" alt="y0k4i" /></a></p><br><br>

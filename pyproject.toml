@@ -1,23 +1,22 @@
-[project]
+[tool.poetry]
 name = "o365creeper-ng"
 version = "1.0.0"
 description = "Stealthy o365 user validation"
-authors = [{name = "y0k4i", email = "7395296+y0k4i-1337@users.noreply.github.com"}]
+authors = ["y0k4i <7395296+y0k4i-1337@users.noreply.github.com>"]
 license = "BSD 2-Clause"
 readme = "README.md"
+packages = [{include = "o365creeper", from = "src"}]
+
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.13"
 aiohttp = {extras = ["speedups"], version = "^3.12.15"}
 aiohttp-socks = "^0.10"
 colorama = "^0.4.6"
 
-[project.urls]
+[tool.poetry.urls]
 "Repository" = "https://github.com/y0k4i-1337/o365creeper-ng.git"
 "Issues" = "https://github.com/y0k4i-1337/o365creeper-ng/issues"
-
-[tool.poetry]
-packages = [{include = "o365creeper", from = "src"}]
 
 [tool.poetry.scripts]
 o365creeper = "o365creeper.cli:run"

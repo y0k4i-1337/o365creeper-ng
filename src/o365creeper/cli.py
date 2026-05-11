@@ -318,6 +318,9 @@ async def main():
         task.cancel()
     await asyncio.gather(*writer_tasks, return_exceptions=True)
 
+    # finally, close sessions
+    await asyncio.gather(*(s.close() for s in sessions))
+
 
 async def file_writer(queue: asyncio.Queue, path: Path):
     async with aiofiles.open(path, mode="a") as f:

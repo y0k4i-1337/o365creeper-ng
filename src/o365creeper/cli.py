@@ -18,13 +18,14 @@
 
 import argparse
 import asyncio
+import aiofiles
 import sys
 from pathlib import Path
 
 import aiohttp
 from colorama import Fore
 
-from o365creeper.core import check_email, verify_domain
+from o365creeper.core import check_email, verify_domain, need_retry
 from o365creeper.tor import create_tor_sessions, test_tor, test_circuits
 from o365creeper.utils import (
     get_list_from_file,
@@ -125,12 +126,12 @@ async def main():
         ),
     )
     parser.add_argument(
-        "-t",
-        "--max-connections",
-        dest="maxconn",
+        "-w",
+        "--max-workers",
+        dest="maxworkers",
         type=int,
         default=20,
-        help="Maximum number of simultaneous connections (default: %(default)s)",
+        help="Maximum number of simultaneous workers (default: %(default)s)",
     )
     parser.add_argument(
         "-s",
@@ -180,9 +181,10 @@ async def main():
         "url": args.baseurl.strip("/") + "/common/GetCredentialType",
     }
 
-    semaphore = asyncio.Semaphore(args.maxconn)
-    connector = aiohttp.TCPConnector(limit=args.maxconn)
     timeout = aiohttp.ClientTimeout(total=args.timeout)
+    queue = asyncio.Queue()
+    output_queue = asyncio.Queue()
+    session_queue = asyncio.Queue()
 
     tor_config = config["tor"]
 
@@ -213,7 +215,6 @@ async def main():
             config["baseurl"],
             tor_config=tor_config,
             timeout=timeout,
-            connector=connector,
         ):
             print_success(
                 f"Domain {args.domain} is MANAGED by MicrosoftOnline."
@@ -253,47 +254,90 @@ async def main():
     # Create sessions
     if tor_config["use"]:
         sessions = await create_tor_sessions(
-            tor_config["socks_port"],
-            tor_config["pool_size"],
-            args.timeout
+            tor_config["socks_port"], tor_config["pool_size"], args.timeout
         )
     else:
-        sessions.append(
-            aiohttp.ClientSession(timeout=timeout, connector=connector)
+        sessions.append(aiohttp.ClientSession(timeout=timeout))
+
+    for s in sessions:
+        await session_queue.put(s)
+
+    for username in usernames:
+        await queue.put(username)
+
+    async def worker(worker_id: int, sleep: int = config["sleep"]):
+        while True:
+            try:
+                username = await queue.get()
+                session = await session_queue.get()
+                try:
+                    res = await check_email(
+                        session=session,
+                        config=config,
+                        email=username,
+                        headers=headers.copy(),
+                    )
+                    # is endpoint throttling requests or some error occured?
+                    if await need_retry(res):
+                        if res["throttle"]:
+                            print_warning(f"{username} - THROTTLED (will retry)")
+                        else:
+                            print_error(f'{username} - {res["exception"]} (will retry)')
+                        await queue.put(username)
+                    else:
+                        # is valid email?
+                        if res["valid"]:
+                            print_success(f"{username} - VALID")
+                            if config["files"]["output"] is not None:
+                                await output_queue.put(username)
+                        else:
+                            print_info(f"{username} - INVALID")
+
+                except Exception as e:
+                    print_error(f"Worker {worker_id}: {e}")
+
+                finally:
+                    await session_queue.put(session)
+                    queue.task_done()
+                    if sleep > 0:
+                        await asyncio.sleep(sleep)
+
+            except asyncio.CancelledError:
+                break
+
+    writer_tasks = []
+    if config["files"]["output"] is not None:
+        writer_tasks.append(
+            asyncio.create_task(file_writer(output_queue, config["files"]["output"]))
         )
 
-    try:
-        tasks = []
-        n_sessions = len(sessions)
+    # start workers and wait for queue to be processed
+    workers = [asyncio.create_task(worker(i, sleep=config["sleep"])) for i in range(args.maxworkers)]
+    await queue.join()
+    for w in workers:
+        w.cancel()
+    await asyncio.gather(*workers, return_exceptions=True)
 
-        for uid, username in enumerate(usernames):
-            # pick session by round-robin
-            session = sessions[uid % n_sessions]
-            task = asyncio.create_task(
-                check_email(session, config, username, headers.copy(), uid, semaphore)
-            )
-            tasks.append(task)
-
-        await asyncio.gather(*tasks, return_exceptions=False)
-    except Exception as e:
-        print_error(f"Error during tasks:{e}")
-    finally:
-        # Cleanly close all sessions
-        await asyncio.gather(*(s.close() for s in sessions))
+    # wait for all output to be written
+    await output_queue.join()
+    for task in writer_tasks:
+        task.cancel()
+    await asyncio.gather(*writer_tasks, return_exceptions=True)
 
 
-    # async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-    #     await asyncio.gather(
-    #         *[
-    #             asyncio.ensure_future(
-    #                 check_email(
-    #                     session, config, username, headers.copy(), uid, semaphore
-    #                 )
-    #             )
-    #             for uid, username in enumerate(usernames)
-    #         ],
-    #         return_exceptions=False,
-    #     )
+async def file_writer(queue: asyncio.Queue, path: Path):
+    async with aiofiles.open(path, mode="a") as f:
+        while True:
+            try:
+                line = await queue.get()
+
+                await f.write(line + "\n")
+                await f.flush()
+
+                queue.task_done()
+
+            except asyncio.CancelledError:
+                break
 
 
 def run():

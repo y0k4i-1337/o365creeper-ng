@@ -44,93 +44,26 @@ async def check_email(
     config: Dict,
     email: str,
     headers: Dict,
-    uid: int,
-    semaphore: asyncio.Semaphore,
 ):
     """
     Check if a given email exists at O365
     """
-    async with semaphore:
-        if uid > 0 and config["sleep"] > 0:
-            await asyncio.sleep(config["sleep"])
-        ret = {}
-        headers["User-Agent"] = random.choice(UAS)
-        payload = {"Username": email}
-        try:
-            async with session.post(
-                config["url"], headers=headers, json=payload
-            ) as resp:
-                text = await resp.text()
-                ret["valid"] = re.search('"IfExistsResult":0,', text) is not None
-                ret["throttle"] = re.search('"ThrottleStatus":1,', text) is not None
-                ret["error"] = False
-                ret["exception"] = None
-        except BaseException as e:
-            ret["valid"] = False
-            ret["throttle"] = False
-            ret["error"] = True
-            ret["exception"] = e
-        finally:
-            # is endpoint throttling requests or some error occured?
-            if await need_retry(ret):
-                new_check = {}
-                n = config["retry"]
-                while n > 0:
-                    new_check = {}
+    ret = {}
+    headers["User-Agent"] = random.choice(UAS)
+    payload = {"Username": email}
+    try:
+        async with session.post(
+            config["url"], headers=headers, json=payload
+        ) as resp:
+            text = await resp.text()
+            ret["valid"] = re.search('"IfExistsResult":0,', text) is not None
+            ret["throttle"] = re.search('"ThrottleStatus":1,', text) is not None
+            ret["error"] = False
+            ret["exception"] = None
+    except BaseException as e:
+        ret["valid"] = False
+        ret["throttle"] = False
+        ret["error"] = True
+        ret["exception"] = e
 
-                    try:
-                        async with session.post(
-                            config["url"], headers=headers, json=payload
-                        ) as resp:
-                            text = await resp.text()
-                            new_check["valid"] = (
-                                re.search('"IfExistsResult":0,', text) is not None
-                            )
-                            new_check["throttle"] = (
-                                re.search('"ThrottleStatus":1,', text) is not None
-                            )
-                            new_check["error"] = False
-                            new_check["exception"] = None
-                    except BaseException as e:
-                        new_check["valid"] = False
-                        new_check["throttle"] = False
-                        new_check["error"] = True
-                        new_check["exception"] = e
-
-                    if await need_retry(new_check):
-                        n -= 1
-                    else:
-                        break
-
-                # still throttling or error occurring :(
-                if await need_retry(new_check):
-                    if new_check["throttle"]:
-                        print_warning(f"{email} - THROTTLED")
-                    else:
-                        print_error(f'{email} - {new_check["exception"]}')
-                    if config["files"]["output_fail"] is not None:
-                        with config["files"]["output_fail"].open(mode="a") as fail_file:
-                            fail_file.write(email + "\n")
-                # didn't throttle this time (nor error)
-                else:
-                    # is valid email?
-                    if new_check["valid"]:
-                        print_success(f"{email} - VALID")
-                        if config["files"]["output"] is not None:
-                            with config["files"]["output"].open(
-                                mode="a"
-                            ) as output_file:
-                                output_file.write(email + "\n")
-                    else:
-                        print_info(f"{email} - INVALID")
-
-            # response was not throttled
-            else:
-                # is valid email?
-                if ret["valid"]:
-                    print_success(f"{email} - VALID")
-                    if config["files"]["output"] is not None:
-                        with config["files"]["output"].open(mode="a") as output_file:
-                            output_file.write(email + "\n")
-                else:
-                    print_info(f"{email} - INVALID")
+    return ret

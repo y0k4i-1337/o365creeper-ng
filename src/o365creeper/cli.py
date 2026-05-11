@@ -81,11 +81,6 @@ async def main():
         help="Output valid email addresses to the specified file.",
     )
     parser.add_argument(
-        "--output-fail",
-        type=Path,
-        help="Output failed validations to the specified file.",
-    )
-    parser.add_argument(
         "--tor",
         action="store_true",
         help="Use tor for requests.",
@@ -170,7 +165,6 @@ async def main():
         "files": {
             "input": args.file,
             "output": args.output,
-            "output_fail": args.output_fail,
         },
         "email": args.email,
         "timeout": args.timeout,

@@ -76,9 +76,8 @@ output throttled ones to a different file with the `--output-fail` parameter, in
 to retry them later.
 
 ```
-usage: o365creeper [-h] (-e EMAIL | -f FILE | --tor-test | -d DOMAIN) [-u BASEURL] [-o OUTPUT]
-                   [--output-fail OUTPUT_FAIL] [--tor] [-p SOCKS_PORT] [--tor-pool TOR_POOL] [--timeout TIME]
-                   [--retry N] [-t MAXCONN] [-s SLEEP] [-H HEADERS]
+usage: o365creeper [-h] (-e EMAIL | -f FILE | --tor-test | -d DOMAIN) [-u BASEURL] [-o OUTPUT] [--tor] [-p SOCKS_PORT]
+                   [--tor-pool TOR_POOL] [--timeout TIME] [--retry N] [-w MAXWORKERS] [-s SLEEP] [-H HEADERS]
 
 Enumerates valid email addresses from Office 365 without submitting login attempts.
 
@@ -91,16 +90,14 @@ options:
   -u, --baseurl BASEURL
                         Base URL (default: https://login.microsoftonline.com).
   -o, --output OUTPUT   Output valid email addresses to the specified file.
-  --output-fail OUTPUT_FAIL
-                        Output failed validations to the specified file.
   --tor                 Use tor for requests.
   -p, --tor-port SOCKS_PORT
                         Tor socks port to use (default: 9050).
   --tor-pool TOR_POOL   Number of Tor circuits to create (default: 10).
   --timeout TIME        Stop waiting for a response after TIME seconds (default: 30).
   --retry N             Retry up to N times in case of error (default: 3).
-  -t, --max-connections MAXCONN
-                        Maximum number of simultaneous connections (default: 20)
+  -w, --max-workers MAXWORKERS
+                        Maximum number of simultaneous workers (default: 20)
   -s, --sleep SLEEP     Sleep this many seconds between tries (default: 0).
   -H, --header HEADERS  Extra header to include in the request (can be used multiple times).
 ```
@@ -112,8 +109,8 @@ poetry run o365creeper -d example.com
 poetry run o365creeper -e test@example.com
 poetry run o365creeper -f emails.txt
 poetry run o365creeper -f emails.txt -o validemails.txt
-poetry run o365creeper -f emails.txt -o validemails.txt -u https://eid939cks.execute-api.us-east-1.amazonaws.com/fireprox -t 100 -H 'X-My-X-Forwarded-For: 127.0.0.1'
-poetry run o365creeper -f emails.txt -o validemails.txt --output-fail retry.txt --tor
+poetry run o365creeper -f emails.txt -o validemails.txt -u https://eid939cks.execute-api.us-east-1.amazonaws.com/fireprox -w 100 -H 'X-My-X-Forwarded-For: 127.0.0.1'
+poetry run o365creeper -f emails.txt -o validemails.txt --tor
 poetry run o365creeper --tor-test
 ```
 

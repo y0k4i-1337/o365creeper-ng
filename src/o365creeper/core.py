@@ -46,14 +46,13 @@ async def check_email(
     headers: Dict,
     uid: int,
     semaphore: asyncio.Semaphore,
-    sleep: int = 0,
 ):
     """
     Check if a given email exists at O365
     """
     async with semaphore:
-        if uid > 0 and sleep > 0:
-            await asyncio.sleep(sleep)
+        if uid > 0 and config["sleep"] > 0:
+            await asyncio.sleep(config["sleep"])
         ret = {}
         headers["User-Agent"] = random.choice(UAS)
         payload = {"Username": email}
